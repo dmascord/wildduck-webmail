@@ -11,6 +11,8 @@ const roleBasedAddresses = require('role-based-email-addresses');
 const util = require('util');
 const humanize = require('humanize');
 const tools = require('../lib/tools');
+const accountSettingsPlugins = require('../lib/account-settings-plugins');
+const autoArchive = require('../lib/auto-archive');
 const Recaptcha = require('express-recaptcha').RecaptchaV3;
 let recaptcha;
 
@@ -217,26 +219,36 @@ router.post('/create', recaptchaVerify, (req, res, next) => {
 });
 
 router.get('/profile', passport.checkLogin, (req, res) => {
-    req.user.targets = []
-        .concat(req.user.targets)
-        .map(targetData => (typeof targetData === 'string' ? targetData : targetData.value))
-        .join(', ');
+    apiClient.users.get(req.user, { metaData: 'true' }, (err, userData) => {
+        if (err || !userData) {
+            req.flash('danger', (err && err.message) || 'Failed loading account data');
+            userData = req.user;
+        } else {
+            userData.token = req.user.token;
+        }
 
-    let defaultSpamLevel = typeof req.user.spamLevel === 'number' ? req.user.spamLevel : 50;
+        userData.targets = []
+            .concat(userData.targets)
+            .map(targetData => (typeof targetData === 'string' ? targetData : targetData.value))
+            .join(', ');
 
-    res.render('account/profile', {
-        title: 'Account',
-        activeHome: true,
-        accMenuProfile: true,
+        let defaultSpamLevel = typeof userData.spamLevel === 'number' ? userData.spamLevel : 50;
 
-        spamLevels: spamLevels.map(level => ({
-            value: level.value,
-            description: level.description,
-            selected: defaultSpamLevel === level.value
-        })),
+        res.render('account/profile', {
+            title: 'Account',
+            activeHome: true,
+            accMenuProfile: true,
 
-        values: req.user,
-        csrfToken: req.csrfToken()
+            spamLevels: spamLevels.map(level => ({
+                value: level.value,
+                description: level.description,
+                selected: defaultSpamLevel === level.value
+            })),
+
+            values: userData,
+            accountPlugins: accountSettingsPlugins.buildViewData({ user: userData, csrfToken: req.csrfToken() }),
+            csrfToken: req.csrfToken()
+        });
     });
 });
 
@@ -285,6 +297,12 @@ router.post('/profile', passport.checkLogin, (req, res) => {
         allowUnknown: false
     });
 
+    let pluginValidation = accountSettingsPlugins.validatePlugins({
+        user: req.user,
+        input: req.body.plugins || {},
+        Joi
+    });
+
     let showErrors = (errors, disableDefault) => {
         if (!disableDefault) {
             req.flash('danger', 'Account update failed');
@@ -307,12 +325,20 @@ router.post('/profile', passport.checkLogin, (req, res) => {
 
             values: result.value,
             errors,
+            accountPlugins: accountSettingsPlugins.buildViewData({
+                user: req.user,
+                pluginValues: pluginValidation.pluginValues,
+                pluginErrors: pluginValidation.pluginErrors,
+                csrfToken: req.csrfToken()
+            }),
 
             csrfToken: req.csrfToken()
         });
     };
 
-    if (result.error) {
+    let hasPluginErrors = pluginValidation.pluginErrors && Object.keys(pluginValidation.pluginErrors).length;
+
+    if (result.error || hasPluginErrors) {
         let errors = {};
         if (result.error && result.error.details) {
             result.error.details.forEach(detail => {
@@ -339,19 +365,39 @@ router.post('/profile', passport.checkLogin, (req, res) => {
     result.value.ip = req.ip;
 
     result.value.allowUnsafe = false;
-    apiClient.users.update(req.user, result.value, err => {
-        if (err) {
-            if (err.fields) {
-                return showErrors(err.fields);
-            } else {
+
+    const applyUpdates = metaData => {
+        if (metaData) {
+            result.value.metaData = metaData;
+        }
+        apiClient.users.update(req.user, result.value, err => {
+            if (err) {
+                if (err.fields) {
+                    return showErrors(err.fields);
+                } else {
+                    req.flash('danger', err.message);
+                    return showErrors({}, true);
+                }
+            }
+
+            req.flash('success', 'Updated account data for ' + req.user.username);
+            res.redirect('/account/profile/');
+        });
+    };
+
+    if (pluginValidation.metaDataUpdates && Object.keys(pluginValidation.metaDataUpdates).length) {
+        apiClient.users.get(req.user, { metaData: 'true' }, (err, userData) => {
+            if (err) {
                 req.flash('danger', err.message);
                 return showErrors({}, true);
             }
-        }
-
-        req.flash('success', 'Updated account data for ' + req.user.username);
-        res.redirect('/account/profile/');
-    });
+            let currentMeta = (userData && userData.metaData) || {};
+            let merged = { ...currentMeta, ...pluginValidation.metaDataUpdates };
+            applyUpdates(merged);
+        });
+    } else {
+        applyUpdates();
+    }
 });
 
 router.post('/start-u2f', (req, res) => {
@@ -420,6 +466,28 @@ router.post('/check-totp', (req, res) => {
         req.session.require2fa = false;
         res.json(data);
     });
+});
+
+const getUserWithMeta = user =>
+    new Promise((resolve, reject) => {
+        apiClient.users.get(user, { metaData: 'true' }, (err, userData) => {
+            if (err) {
+                return reject(err);
+            }
+            if (userData) {
+                userData.token = user.token;
+            }
+            resolve(userData || user);
+        });
+    });
+
+const runAutoArchive = async userData => {
+    return autoArchive.runAutoArchiveForUser(userData, userData.metaData || {});
+};
+
+accountSettingsPlugins.registerRoutes(router, {
+    getUserWithMeta,
+    runAutoArchive
 });
 
 router.post('/check-u2f', (req, res) => {

@@ -1,0 +1,52 @@
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">Auto-Archive</h3>
+    </div>
+    <div class="panel-body">
+        <p>Automatically move old messages into monthly archive folders.</p>
+
+        <div class="form-group{{#if errors.autoArchiveEnabled}} has-error{{/if}}">
+            <div class="checkbox">
+                <label>
+                    <input type="hidden" name="plugins[autoArchive][autoArchiveEnabled]" value="false">
+                    <input type="checkbox" name="plugins[autoArchive][autoArchiveEnabled]" value="true" {{#if values.autoArchiveEnabled}}checked{{/if}}>
+                    Enable auto-archive
+                </label>
+            </div>
+            {{#if errors.autoArchiveEnabled}}
+                <span class="help-block">{{errors.autoArchiveEnabled}}</span>
+            {{/if}}
+        </div>
+
+        <div class="form-group{{#if errors.autoArchiveMonths}} has-error{{/if}}">
+            <label>Archive messages older than (months)</label>
+            <input type="number" class="form-control" name="plugins[autoArchive][autoArchiveMonths]" min="1" max="120" value="{{values.autoArchiveMonths}}">
+            {{#if errors.autoArchiveMonths}}
+                <span class="help-block">{{errors.autoArchiveMonths}}</span>
+            {{/if}}
+        </div>
+
+        <div class="form-group{{#if errors.autoArchiveBase}} has-error{{/if}}">
+            <label>Archive base folder</label>
+            <input type="text" class="form-control" name="plugins[autoArchive][autoArchiveBase]" value="{{values.autoArchiveBase}}">
+            {{#if errors.autoArchiveBase}}
+                <span class="help-block">{{errors.autoArchiveBase}}</span>
+            {{/if}}
+        </div>
+
+        <div class="form-group{{#if errors.autoArchivePattern}} has-error{{/if}}">
+            <label>Archive folder pattern</label>
+            <input type="text" class="form-control" name="plugins[autoArchive][autoArchivePattern]" value="{{values.autoArchivePattern}}">
+            <span class="help-block">Available variables: {base}, {year}, {month}, {day}</span>
+            {{#if errors.autoArchivePattern}}
+                <span class="help-block">{{errors.autoArchivePattern}}</span>
+            {{/if}}
+        </div>
+
+        <div class="form-group">
+            <button type="submit" formaction="/account/auto-archive/run" formmethod="post" class="btn btn-default">
+                <span class="glyphicon glyphicon-play" aria-hidden="true"></span> Run auto-archive now
+            </button>
+        </div>
+    </div>
+</div>

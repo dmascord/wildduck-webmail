@@ -61,6 +61,13 @@ title="wildduck-www"
     # must be https url or use default
     #appId="https://127.0.0.1:8080"
 
+[autoArchive]
+    months=3
+    base="Archives"
+    pattern="{base}/{year}/{month}"
+    allFolders=false
+    includeBase=false
+
 [log]
     level="silly"
     mail=true
